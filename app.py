@@ -54,14 +54,10 @@ if "findings" not in st.session_state:
     st.session_state.findings = []
 if "api_key" not in st.session_state:
     st.session_state.api_key = ""
-if "uploader_key" not in st.session_state:
-    st.session_state.uploader_key = 0
 
-# Arayüz veri anahtarları (Manuel girişlerde form temizliği için)
-if "raw_note" not in st.session_state: st.session_state.raw_note = ""
-if "f_tespit" not in st.session_state: st.session_state.f_tespit = ""
-if "f_oneri" not in st.session_state: st.session_state.f_oneri = ""
-if "f_yasal" not in st.session_state: st.session_state.f_yasal = ""
+# Form temizleme sayacı (Tüm widget'ları aynı anda yenilemek için)
+if "form_reset_counter" not in st.session_state:
+    st.session_state.form_reset_counter = 0
 
 saved_cookie_key = cookie_controller.get("gemini_api_key")
 if saved_cookie_key and not st.session_state.api_key:
@@ -318,7 +314,6 @@ def generate_word_report(report_date, dept, location, expert, sicil_no, findings
 
     remove_table_spacing(header_table)
     
-    # 12 pt olan boşluk 3 pt'ye düşürüldü
     p_header_spacer = header.add_paragraph()
     p_header_spacer.paragraph_format.space_before = Pt(3)
     p_header_spacer.paragraph_format.space_after = Pt(0)
@@ -372,13 +367,13 @@ def generate_word_report(report_date, dept, location, expert, sicil_no, findings
             if num_p == 1:
                 calc_w = Inches(3.2)
             else:
-                calc_w = Inches(1.8) # İki ve daha fazlası için sabit genişlik
+                calc_w = Inches(1.8)
                 
             for p_idx, p_bytes in enumerate(f["photos"]):
                 img_stream = io.BytesIO(p_bytes)
                 p_img.add_run().add_picture(img_stream, width=calc_w)
                 
-                # Her 2 resimde bir alt satıra geç (son resim değilse)
+                # Sadece her 2 resimde bir alt satıra geç (son resim değilse)
                 if (p_idx + 1) % 2 == 0 and p_idx < num_p - 1:
                     p_img.add_run().add_break(docx.enum.text.WD_BREAK.LINE)
                 elif p_idx < num_p - 1:
@@ -512,48 +507,57 @@ st.divider()
 
 st.subheader("🔍 Tespit / Uygunsuzluk Ekle")
 
+# Session State değişkenleri (Form Temizliği İçin)
+# Her form gönderildiğinde sayaç (form_reset_counter) 1 artacak, böylece widget'ların KEY'i değişip sıfırlanacak.
+f_id = st.session_state.form_reset_counter
+
 col_note, col_btn = st.columns([3.5, 1.5])
 with col_note:
-    # Key eklenerek state ile bağlandı
-    st.text_input("Saha Notunuz (Hızlı Giriş)", placeholder="Örn: Priz kapağı kırık...", key="raw_note")
+    # "raw_note" değerini st.session_state üzerinden de takip edebiliriz, ama 
+    # API'ye yollamak için anlık değerini alıyoruz.
+    raw_note = st.text_input("Saha Notunuz (Hızlı Giriş)", placeholder="Örn: Priz kapağı kırık...", key=f"raw_note_{f_id}")
 with col_btn:
     st.write("")
     st.write("")
     ai_btn = st.button("✨ Yapay Zeka ile Düzenle", use_container_width=True)
 
+# AI doldurduğunda değerleri hafızada geçici tutmak için
+if "temp_tespit" not in st.session_state: st.session_state.temp_tespit = ""
+if "temp_oneri" not in st.session_state: st.session_state.temp_oneri = ""
+if "temp_yasal" not in st.session_state: st.session_state.temp_yasal = ""
+
 if ai_btn:
     if not active_api_key:
         st.error("Lütfen sol taraftan Gemini API anahtarınızı giriniz.")
-    elif not st.session_state.raw_note.strip():
+    elif not raw_note.strip():
         st.warning("Lütfen kısa bir saha gözlem notu girin.")
     else:
         with st.spinner("İSG standartlarına göre düzenleniyor..."):
             try:
-                res = call_gemini_ai(st.session_state.raw_note, active_api_key)
-                st.session_state.f_tespit = res.get("tespit", "")
-                st.session_state.f_oneri = res.get("oneri", "")
-                st.session_state.f_yasal = res.get("yasal", "")
+                res = call_gemini_ai(raw_note, active_api_key)
+                st.session_state.temp_tespit = res.get("tespit", "")
+                st.session_state.temp_oneri = res.get("oneri", "")
+                st.session_state.temp_yasal = res.get("yasal", "")
                 st.success("Yapay zeka düzenledi!")
             except Exception as e:
                 st.error(f"Hata: {str(e)}")
 
-# Giriş alanları doğrudan session_state "key" mantığıyla kontrol ediliyor (Manuel girişte de sıfırlansın diye)
-st.text_area("Tespit / Uygunsuzluk", height=85, key="f_tespit")
-st.text_area("Öneri / Önlem", height=85, key="f_oneri")
+finding_input = st.text_area("Tespit / Uygunsuzluk", value=st.session_state.temp_tespit, height=85, key=f"tespit_{f_id}")
+suggestion_input = st.text_area("Öneri / Önlem", value=st.session_state.temp_oneri, height=85, key=f"oneri_{f_id}")
 
 col_l, col_r, col_t = st.columns([2, 1.2, 1])
 with col_l:
-    st.text_area("Yasal Dayanak (Satır Satır)", height=80, key="f_yasal")
+    legal_input = st.text_area("Yasal Dayanak (Satır Satır)", value=st.session_state.temp_yasal, height=80, key=f"yasal_{f_id}")
 with col_r:
-    responsible_input = st.text_input("Sorumlular", value=dept)
+    responsible_input = st.text_input("Sorumlular", value=dept, key=f"sorumlu_{f_id}")
 with col_t:
-    termin_input = st.text_input("Termin", value="İvedilikle")
+    termin_input = st.text_input("Termin", value="İvedilikle", key=f"termin_{f_id}")
 
 uploaded_photos = st.file_uploader(
     "Fotoğraflar (Birden fazla seçebilirsiniz)",
     type=["jpg", "jpeg", "png"],
     accept_multiple_files=True,
-    key=f"photo_uploader_{st.session_state.uploader_key}"
+    key=f"photo_uploader_{f_id}"
 )
 
 if uploaded_photos:
@@ -566,26 +570,28 @@ if uploaded_photos:
     st.markdown('</div>', unsafe_allow_html=True)
 
 if st.button("➕ Bu Maddeyi Listeye Kaydet", type="primary", use_container_width=True):
-    if not st.session_state.f_tespit.strip():
+    if not finding_input.strip():
         st.warning("Tespit alanı boş bırakılamaz.")
     else:
         photo_bytes_list = [p.getvalue() for p in uploaded_photos] if uploaded_photos else []
         
         st.session_state.findings.append({
-            "finding": st.session_state.f_tespit.strip(),
-            "suggestion": st.session_state.f_oneri.strip(),
-            "legal": st.session_state.f_yasal.strip(),
+            "finding": finding_input.strip(),
+            "suggestion": suggestion_input.strip(),
+            "legal": legal_input.strip(),
             "responsible": responsible_input.strip(),
             "termin": termin_input.strip(),
             "photos": photo_bytes_list
         })
         
-        # Manuel yazılsa dahi listeye ekledikten sonra form tamamen temizleniyor
-        st.session_state.f_tespit = ""
-        st.session_state.f_oneri = ""
-        st.session_state.f_yasal = ""
-        st.session_state.raw_note = ""
-        st.session_state.uploader_key += 1
+        # Temp değerleri temizle
+        st.session_state.temp_tespit = ""
+        st.session_state.temp_oneri = ""
+        st.session_state.temp_yasal = ""
+        
+        # SAYAÇ ARTIRARAK TÜM WIDGET'LARI SIFIRLIYORUZ (Hatasız Kesin Çözüm)
+        st.session_state.form_reset_counter += 1
+        
         st.success("Madde başarıyla listeye eklendi!")
         st.rerun()
 
