@@ -467,7 +467,7 @@ with st.container():
         expert = st.text_input("İSG Uzmanı", value="Kemal ŞAHİN")
 
     with st.expander("Ek Bilgi (Sicil Numarası)"):
-        sicil_no = st.text_input("Sicil No", value="1 3900 01 01 1170275 033 11 53")
+        sicil_no = st.text_input("Sicil No", value="1 3900 01 01 1170275 033 12 53")
 
 st.divider()
 
