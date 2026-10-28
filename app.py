@@ -12,25 +12,23 @@ from docx.enum.section import WD_SECTION, WD_ORIENTATION
 from docx.oxml import parse_xml, OxmlElement
 from docx.oxml.ns import nsdecls, qn
 from streamlit_cookies_controller import CookieController
+import docx
 
 # ----------------- SAYFA YAPILANDIRMASI -----------------
 st.set_page_config(
     page_title="İSG Saha Gözetim Raporu",
     page_icon="🛡️",
-    layout="centered"  # Sayfayı kompakt ve ortalı tutar
+    layout="centered"
 )
 
-# Arayüzü ortalayan, taşmaları önleyen ve küçük önizleme sağlayan CSS
 st.markdown("""
 <style>
-    /* Ana form kapsayıcısını ortaya sabitle ve sınırla */
     .block-container {
         max-width: 860px !important;
         padding-top: 1.5rem !important;
         padding-bottom: 3rem !important;
         margin: 0 auto !important;
     }
-    /* Önizleme resimlerini sabit 100x100 kutucuk yap */
     .preview-box {
         display: flex;
         flex-wrap: wrap;
@@ -57,9 +55,8 @@ if "findings" not in st.session_state:
 if "api_key" not in st.session_state:
     st.session_state.api_key = ""
 if "uploader_key" not in st.session_state:
-    st.session_state.uploader_key = 0  # Dosya yükleyiciyi sıfırlamak için dinamik sayaç
+    st.session_state.uploader_key = 0
 
-# Çerezden API anahtarını yükle
 saved_cookie_key = cookie_controller.get("gemini_api_key")
 if saved_cookie_key and not st.session_state.api_key:
     st.session_state.api_key = saved_cookie_key
@@ -135,7 +132,6 @@ def set_table_borders(table, color="000000"):
         tblPr[0].append(borders)
 
 def add_page_number_to_footer(footer):
-    """Alt bilgiye ortalanmış '1 / 5' biçiminde dinamik sayfa numarası ekler."""
     p = footer.paragraphs[0]
     p.alignment = WD_ALIGN_PARAGRAPH.CENTER
     
@@ -150,6 +146,16 @@ def add_page_number_to_footer(footer):
     fld_numpages = OxmlElement('w:fldSimple')
     fld_numpages.set(qn('w:instr'), 'NUMPAGES')
     p._p.append(fld_numpages)
+
+def add_cover_line(doc, text, size=24, bold=False, space_after=12):
+    p = doc.add_paragraph()
+    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    p.paragraph_format.space_after = Pt(space_after)
+    r = p.add_run(text)
+    r.font.name = "Times New Roman"
+    r.font.size = Pt(size)
+    r.bold = bold
+    return p
 
 # ----------------- GEMINI API İLE METİN DÜZENLEME -----------------
 def call_gemini_ai(raw_note, api_key):
@@ -180,11 +186,11 @@ def call_gemini_ai(raw_note, api_key):
     import json
     return json.loads(response.json()["candidates"][0]["content"]["parts"][0]["text"])
 
-# ----------------- WORD BELGESİ OLUŞTURMA (ORİJİNALİN BİREBİR AYNISI) -----------------
+# ----------------- WORD BELGESİ OLUŞTURMA -----------------
 def generate_word_report(report_date, dept, location, expert, sicil_no, findings):
     doc = Document()
     
-    # Sayfa Boyutu: A4 Yatay (Landscape)
+    # Sayfa Boyutu: A4 Yatay
     section = doc.sections[0]
     section.orientation = WD_ORIENTATION.LANDSCAPE
     section.page_width = Inches(11.69)
@@ -198,52 +204,40 @@ def generate_word_report(report_date, dept, location, expert, sicil_no, findings
     logo_exists = os.path.exists("logo.png")
 
     # ================= 1. KAPAK SAYFASI =================
-    p_cov_space = doc.add_paragraph()
-    p_cov_space.paragraph_format.space_before = Pt(30)
-
-    # Kapak Logosu (Genişlik: 2.22 inç ~ 5.6 cm)
     p_cov_logo = doc.add_paragraph()
     p_cov_logo.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    p_cov_logo.paragraph_format.space_before = Pt(30)
+    p_cov_logo.paragraph_format.space_after = Pt(20)
+    
     if logo_exists:
-        p_cov_logo.add_run().add_picture("logo.png", width=Inches(2.22))
+        p_cov_logo.add_run().add_picture("logo.png", width=Inches(3.5)) # Logo büyütüldü
     else:
         r_l = p_cov_logo.add_run("[LOGO - logo.png]")
         r_l.bold = True
 
-    # Kapak Kurumsal Bilgileri
-    p_cov_title = doc.add_paragraph()
-    p_cov_title.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    p_cov_title.paragraph_format.line_spacing = 1.3
+    # Fontlar tam 24 Punto (Orijinal ile birebir)
+    add_cover_line(doc, "T.C.", 24, bold=True, space_after=6)
+    add_cover_line(doc, "MERSİN BÜYÜKŞEHİR BELEDİYESİ", 24, bold=True, space_after=6)
+    add_cover_line(doc, f"{dept.upper()}", 24, bold=True, space_after=12)
+    add_cover_line(doc, f"Sicil No: {sicil_no}", 24, bold=False, space_after=40)
+    add_cover_line(doc, "İSG Saha Gözetim Raporu", 24, bold=True, space_after=12)
     
-    r_tc = p_cov_title.add_run("\nT.C.\n")
-    r_mbb = p_cov_title.add_run("MERSİN BÜYÜKŞEHİR BELEDİYESİ\n")
-    r_dept = p_cov_title.add_run(f"{dept.upper()}\n")
-    r_sicil = p_cov_title.add_run(f"Sicil No: {sicil_no}\n\n")
-    r_rep_title = p_cov_title.add_run("İSG Saha Gözetim Raporu\n\n")
-    r_date = p_cov_title.add_run(f"{formatted_date}\n\n")
+    p_date = add_cover_line(doc, formatted_date, 24, bold=False, space_after=0)
 
-    for r in [r_tc, r_mbb, r_dept]:
-        r.font.name = "Times New Roman"
-        r.font.size = Pt(16)
-        r.bold = True
-    r_sicil.font.name = "Times New Roman"
-    r_sicil.font.size = Pt(12)
-    r_rep_title.font.name = "Times New Roman"
-    r_rep_title.font.size = Pt(22)
-    r_rep_title.bold = True
-    r_date.font.name = "Times New Roman"
-    r_date.font.size = Pt(14)
+    # Boş sayfa hatasını engellemek için page_break'i son yazının doğrudan içine gömüyoruz
+    p_date.runs[0].add_break(docx.enum.text.WD_BREAK.PAGE)
 
-    # Kapak Altı Giriş Cümlesi
-    p_cov_intro = doc.add_paragraph()
-    p_cov_intro.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
-    p_cov_intro.paragraph_format.space_before = Pt(20)
-    p_cov_intro.paragraph_format.line_spacing = 1.15
+    # ================= 2. GİRİŞ CÜMLESİ =================
+    p_intro = doc.add_paragraph()
+    p_intro.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+    # Tablo ile üst antete yapışmaması için boşluklar
+    p_intro.paragraph_format.space_before = Pt(12) 
+    p_intro.paragraph_format.space_after = Pt(12)
 
-    r_in1 = p_cov_intro.add_run(f"{formatted_date} tarihinde {dept}’na Bağlı ")
-    r_in2 = p_cov_intro.add_run(f"{location} ")
+    r_in1 = p_intro.add_run(f"{formatted_date} tarihinde {dept}’na Bağlı ")
+    r_in2 = p_intro.add_run(f"{location} ")
     r_in2.bold = True
-    r_in3 = p_cov_intro.add_run(
+    r_in3 = p_intro.add_run(
         "İş Güvenliği Uzmanı tarafından yapılan saha denetiminde, tespit edilen hususlara ilişkin "
         "“Tespit / Uygunsuzluk ve Öneriler” aşağıda belirtilmiştir."
     )
@@ -251,11 +245,7 @@ def generate_word_report(report_date, dept, location, expert, sicil_no, findings
         r.font.name = "Times New Roman"
         r.font.size = Pt(12)
 
-    # Kapaktan sonra Sayfa Sonu (Bulgular Sayfa 2'den başlar)
-    doc.add_page_break()
-
-    # ================= 2. ÜST BİLGİ (HEADER) AYARI =================
-    # İlk sayfa kapak olduğu için antet tablosu kapakta görünmez, 2. sayfadan itibaren her sayfaya otomatik basılır
+    # ================= 3. ÜST BİLGİ (HEADER) AYARI =================
     section.different_first_page_header_footer = True
     header = section.header
     header_table = header.add_table(rows=2, cols=3, width=Inches(10.1))
@@ -268,18 +258,16 @@ def generate_word_report(report_date, dept, location, expert, sicil_no, findings
         for i, w in enumerate(col_w):
             row.cells[i].width = w
 
-    # Sol Üst Hücre: Logo (Genişlik: 1.29 inç ~ 3.3 cm)
     cell_h_logo = header_table.cell(0, 0)
     cell_h_logo.merge(header_table.cell(1, 0))
     cell_h_logo.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
     p_h_logo = cell_h_logo.paragraphs[0]
     p_h_logo.alignment = WD_ALIGN_PARAGRAPH.CENTER
     if logo_exists:
-        p_h_logo.add_run().add_picture("logo.png", width=Inches(1.29))
+        p_h_logo.add_run().add_picture("logo.png", width=Inches(1.3))
     else:
         p_h_logo.add_run("[LOGO]").bold = True
 
-    # Orta Üst Hücre: Kurum Başlığı
     cell_h_mid = header_table.cell(0, 1)
     cell_h_mid.merge(header_table.cell(1, 1))
     cell_h_mid.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
@@ -295,7 +283,6 @@ def generate_word_report(report_date, dept, location, expert, sicil_no, findings
         r.font.name = "Times New Roman"
         r.font.size = Pt(11)
 
-    # Sağ Üst Hücre: Tarih
     cell_h_date = header_table.cell(0, 2)
     p_hd = cell_h_date.paragraphs[0]
     r_h_dlbl = p_hd.add_run("Tarih: ")
@@ -305,7 +292,6 @@ def generate_word_report(report_date, dept, location, expert, sicil_no, findings
         r.font.name = "Times New Roman"
         r.font.size = Pt(11)
 
-    # Sağ Alt Hücre: Bölüm / Lokasyon
     cell_h_sec = header_table.cell(1, 2)
     p_hs = cell_h_sec.paragraphs[0]
     r_h_slbl = p_hs.add_run("Bölüm: ")
@@ -315,10 +301,9 @@ def generate_word_report(report_date, dept, location, expert, sicil_no, findings
         r.font.name = "Times New Roman"
         r.font.size = Pt(11)
 
-    # Alt Bilgi Sayfa Numarası (1 / 5 formatında)
     add_page_number_to_footer(section.footer)
 
-    # ================= 3. BULGULAR TABLOSU =================
+    # ================= 4. BULGULAR TABLOSU =================
     findings_table = doc.add_table(rows=1, cols=2)
     findings_table.alignment = WD_TABLE_ALIGNMENT.CENTER
     findings_table.autofit = False
@@ -326,13 +311,12 @@ def generate_word_report(report_date, dept, location, expert, sicil_no, findings
     
     tbl_widths = [Inches(4.2), Inches(6.3)]
     
-    # Tablo Başlığı: Fotoğraf | Açıklamalar
     hdr_cells = findings_table.rows[0].cells
     hdr_cells[0].width = tbl_widths[0]
     hdr_cells[1].width = tbl_widths[1]
     
-    set_cell_background(hdr_cells[0], "FFFFFF")
-    set_cell_background(hdr_cells[1], "FFFFFF")
+    set_cell_background(hdr_cells[0], "F2F2F2")
+    set_cell_background(hdr_cells[1], "F2F2F2")
     
     p_th0 = hdr_cells[0].paragraphs[0]
     p_th0.alignment = WD_ALIGN_PARAGRAPH.CENTER
@@ -348,7 +332,6 @@ def generate_word_report(report_date, dept, location, expert, sicil_no, findings
     r_th1.font.name = "Times New Roman"
     r_th1.font.size = Pt(12)
 
-    # Maddeleri Satır Satır Ekle
     for f in findings:
         row_cells = findings_table.add_row().cells
         row_cells[0].width = tbl_widths[0]
@@ -357,7 +340,6 @@ def generate_word_report(report_date, dept, location, expert, sicil_no, findings
         set_cell_margins(row_cells[0], top=120, bottom=120, left=100, right=100)
         set_cell_margins(row_cells[1], top=120, bottom=120, left=160, right=140)
 
-        # --- Sol Hücre: Fotoğraflar (Yan yana nizami dizilim) ---
         cell_img = row_cells[0]
         cell_img.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
         p_img = cell_img.paragraphs[0]
@@ -365,7 +347,6 @@ def generate_word_report(report_date, dept, location, expert, sicil_no, findings
         
         if f["photos"]:
             num_p = len(f["photos"])
-            # Fotoğraf sayısına göre genişliği ayarla (3 resim yan yana sığsın)
             calc_w = Inches(3.9 / num_p) if num_p > 1 else Inches(3.2)
             calc_w = min(calc_w, Inches(1.8)) if num_p > 1 else calc_w
             
@@ -373,17 +354,15 @@ def generate_word_report(report_date, dept, location, expert, sicil_no, findings
                 img_stream = io.BytesIO(p_bytes)
                 p_img.add_run().add_picture(img_stream, width=calc_w)
                 if p_idx < num_p - 1:
-                    p_img.add_run("  ")  # Yan yana resimler arasına boşluk
+                    p_img.add_run("  ") 
         else:
             r_no = p_img.add_run("Görsel Eklenmedi")
             r_no.font.name = "Times New Roman"
             r_no.font.size = Pt(11)
 
-        # --- Sağ Hücre: Açıklamalar (Altı Çizili ve Kalın Başlıklar) ---
         cell_desc = row_cells[1]
         cell_desc.vertical_alignment = WD_ALIGN_VERTICAL.TOP
         
-        # 1. Tespit
         p_f = cell_desc.paragraphs[0]
         p_f.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
         r_f_lbl = p_f.add_run("Tespit / Uygunsuzluk : ")
@@ -394,7 +373,6 @@ def generate_word_report(report_date, dept, location, expert, sicil_no, findings
             r.font.name = "Times New Roman"
             r.font.size = Pt(12)
             
-        # 2. Öneri
         p_s = cell_desc.add_paragraph()
         p_s.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
         r_s_lbl = p_s.add_run("Öneri: ")
@@ -405,7 +383,6 @@ def generate_word_report(report_date, dept, location, expert, sicil_no, findings
             r.font.name = "Times New Roman"
             r.font.size = Pt(12)
             
-        # 3. Yasal Dayanak (Madde İmli Liste)
         p_l_head = cell_desc.add_paragraph()
         r_l_lbl = p_l_head.add_run("Yasal Dayanak:")
         r_l_lbl.bold = True
@@ -415,15 +392,11 @@ def generate_word_report(report_date, dept, location, expert, sicil_no, findings
         
         legal_lines = [l.strip() for l in f["legal"].split("\n") if l.strip()]
         for line in legal_lines:
-            p_bullet = cell_desc.add_paragraph()
-            p_bullet.paragraph_format.left_indent = Inches(0.25)
-            p_bullet.paragraph_format.space_before = Pt(0)
-            p_bullet.paragraph_format.space_after = Pt(2)
-            r_bullet = p_bullet.add_run(f"•  {line}")
+            p_bullet = cell_desc.add_paragraph(style='List Paragraph') 
+            r_bullet = p_bullet.add_run(line.replace("•", "").strip())
             r_bullet.font.name = "Times New Roman"
             r_bullet.font.size = Pt(12)
             
-        # 4. Sorumlular
         p_r = cell_desc.add_paragraph()
         r_r_lbl = p_r.add_run("Sorumlular: ")
         r_r_lbl.bold = True
@@ -433,7 +406,6 @@ def generate_word_report(report_date, dept, location, expert, sicil_no, findings
             r.font.name = "Times New Roman"
             r.font.size = Pt(12)
             
-        # 5. Termin
         p_t = cell_desc.add_paragraph()
         r_t_lbl = p_t.add_run("Termin: ")
         r_t_lbl.bold = True
@@ -443,8 +415,11 @@ def generate_word_report(report_date, dept, location, expert, sicil_no, findings
             r.font.name = "Times New Roman"
             r.font.size = Pt(12)
 
-    # ================= 4. KAPANIS CÜMLESİ VE İMZA BLOĞU =================
-    doc.add_paragraph()
+    # ================= 5. KAPANIS CÜMLESİ VE İMZA BLOĞU =================
+    # Son satırdan önceki boşluğu minimize ediyoruz
+    p_spacer = doc.add_paragraph()
+    p_spacer.paragraph_format.space_after = Pt(6)
+
     p_close = doc.add_paragraph()
     p_close.alignment = WD_ALIGN_PARAGRAPH.LEFT
     count = len(findings)
@@ -454,29 +429,30 @@ def generate_word_report(report_date, dept, location, expert, sicil_no, findings
     )
     r_close.font.name = "Times New Roman"
     r_close.font.size = Pt(12)
-
-    # İmza Bloğu
+    
+    # İmza Bloğu (Gereksiz paragraflar silindi, line spacing düzeltildi)
     p_sign = doc.add_paragraph()
     p_sign.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+    p_sign.paragraph_format.space_before = Pt(24) # İmza aralığı
+    
     r_s1 = p_sign.add_run("İş Sağlığı ve Güvenliği Uzmanı\n\n\n")
     r_s1.bold = True
     r_s2 = p_sign.add_run(f"{expert}\n")
     r_s2.bold = True
     r_s3 = p_sign.add_run("İmza")
+    
     for r in [r_s1, r_s2, r_s3]:
         r.font.name = "Times New Roman"
         r.font.size = Pt(12)
 
-    # Dosya bayt akışı
     file_stream = io.BytesIO()
     doc.save(file_stream)
     file_stream.seek(0)
     return file_stream
 
-# ----------------- STREAMLIT ÖN YÜZ (KOMPAKT & ORTALI) -----------------
+# ----------------- STREAMLIT ÖN YÜZ -----------------
 st.title("🛡️ İSG Saha Gözetim Raporu")
 
-# 1. Üst Bilgiler
 with st.container():
     st.subheader("📋 Rapor Üst Bilgileri")
     c1, c2 = st.columns(2)
@@ -495,7 +471,6 @@ with st.container():
 
 st.divider()
 
-# 2. Tespit ve Uygunsuzluk Giriş Alanı
 st.subheader("🔍 Tespit / Uygunsuzluk Ekle")
 
 col_note, col_btn = st.columns([3.5, 1.5])
@@ -529,7 +504,6 @@ if ai_btn:
             except Exception as e:
                 st.error(f"Hata: {str(e)}")
 
-# Düzenleme Alanları
 finding_input = st.text_area("Tespit / Uygunsuzluk", value=st.session_state.current_tespit, height=85)
 suggestion_input = st.text_area("Öneri / Önlem", value=st.session_state.current_oneri, height=85)
 
@@ -541,7 +515,6 @@ with col_r:
 with col_t:
     termin_input = st.text_input("Termin", value="İvedilikle")
 
-# Fotoğraf Yükleyici (Dinamik key ile her eklemede otomatik sıfırlanır)
 uploaded_photos = st.file_uploader(
     "Fotoğraflar (Birden fazla seçebilirsiniz)",
     type=["jpg", "jpeg", "png"],
@@ -549,7 +522,6 @@ uploaded_photos = st.file_uploader(
     key=f"photo_uploader_{st.session_state.uploader_key}"
 )
 
-# Fotoğraf Önizlemeleri (Kompakt 100px kutucuklar)
 if uploaded_photos:
     st.caption("Yüklenen Fotoğraf Önizlemeleri:")
     st.markdown('<div class="preview-box">', unsafe_allow_html=True)
@@ -559,12 +531,10 @@ if uploaded_photos:
             st.image(photo, width=100)
     st.markdown('</div>', unsafe_allow_html=True)
 
-# Listeye Kaydet Butonu
 if st.button("➕ Bu Maddeyi Listeye Kaydet", type="primary", use_container_width=True):
     if not finding_input.strip():
         st.warning("Tespit alanı boş bırakılamaz.")
     else:
-        # Fotoğrafları bayt olarak sakla
         photo_bytes_list = [p.getvalue() for p in uploaded_photos] if uploaded_photos else []
         
         st.session_state.findings.append({
@@ -576,19 +546,16 @@ if st.button("➕ Bu Maddeyi Listeye Kaydet", type="primary", use_container_widt
             "photos": photo_bytes_list
         })
         
-        # Metin alanlarını temizle
         st.session_state.current_tespit = ""
         st.session_state.current_oneri = ""
         st.session_state.current_yasal = ""
         
-        # Fotoğraf yükleyici sayacını artırarak uploader'ı tertemiz sıfırla
         st.session_state.uploader_key += 1
         st.success("Madde başarıyla listeye eklendi!")
         st.rerun()
 
 st.divider()
 
-# 3. Eklenen Maddeler ve Rapor İndirme
 st.subheader("📑 Eklenen Maddeler")
 
 if not st.session_state.findings:
