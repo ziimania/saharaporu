@@ -100,7 +100,6 @@ with st.sidebar:
 
 # ----------------- WORD YARDIMCI FONKSİYONLARI -----------------
 def tr_upper(text):
-    """Küçük i'leri büyük İ yapan, Türkçe uyumlu uppercase fonksiyonu."""
     return text.replace("i", "İ").replace("ı", "I").upper()
 
 def set_cell_background(cell, hex_color):
@@ -162,7 +161,6 @@ def add_cover_line(doc, text, size=24, bold=False, space_after=12):
     return p
 
 def remove_table_spacing(table):
-    """Tablo içindeki tüm paragrafların alt/üst boşluklarını sıfırlar."""
     for row in table.rows:
         for cell in row.cells:
             for p in cell.paragraphs:
@@ -213,7 +211,7 @@ def generate_word_report(report_date, dept, location, expert, sicil_no, findings
     
     formatted_date = report_date.strftime("%d.%m.%Y")
     logo_exists = os.path.exists("logo.png")
-    dept_upper = tr_upper(dept) # VETERİNER İŞLERİ DAİRESİ BAŞKANLIĞI
+    dept_upper = tr_upper(dept) 
 
     # ================= 1. KAPAK SAYFASI =================
     p_cov_logo = doc.add_paragraph()
@@ -292,7 +290,7 @@ def generate_word_report(report_date, dept, location, expert, sicil_no, findings
     for r in [rh1, rh2, rh3, rh4]:
         r.bold = True
         r.font.name = "Times New Roman"
-        r.font.size = Pt(12) # 11'den 12 Puntoya yükseltildi
+        r.font.size = Pt(12) 
 
     cell_h_date = header_table.cell(0, 2)
     p_hd = cell_h_date.paragraphs[0]
@@ -313,6 +311,12 @@ def generate_word_report(report_date, dept, location, expert, sicil_no, findings
         r.font.size = Pt(11)
 
     remove_table_spacing(header_table)
+    
+    # Yeni sayfaya taşan tablonun üst bilgiye yapışmasını engellemek için antet altına nefes boşluğu ekliyoruz
+    p_header_spacer = header.add_paragraph()
+    p_header_spacer.paragraph_format.space_before = Pt(12)
+    p_header_spacer.paragraph_format.space_after = Pt(0)
+
     add_page_number_to_footer(section.footer)
 
     # ================= 4. BULGULAR TABLOSU =================
@@ -352,7 +356,6 @@ def generate_word_report(report_date, dept, location, expert, sicil_no, findings
         set_cell_margins(row_cells[0], top=120, bottom=120, left=100, right=100)
         set_cell_margins(row_cells[1], top=120, bottom=120, left=160, right=140)
 
-        # Fotoğraf Dizilimi (3 resim kuralı ve alt satır)
         cell_img = row_cells[0]
         cell_img.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
         p_img = cell_img.paragraphs[0]
@@ -365,13 +368,12 @@ def generate_word_report(report_date, dept, location, expert, sicil_no, findings
             elif num_p == 2:
                 calc_w = Inches(1.8)
             else:
-                calc_w = Inches(1.25) # 3 resim ve fazlası için ideal genişlik
+                calc_w = Inches(1.25)
                 
             for p_idx, p_bytes in enumerate(f["photos"]):
                 img_stream = io.BytesIO(p_bytes)
                 p_img.add_run().add_picture(img_stream, width=calc_w)
                 
-                # Her 3 resimde bir alt satıra geç (ama son resim değilse)
                 if (p_idx + 1) % 3 == 0 and p_idx < num_p - 1:
                     p_img.add_run().add_break(docx.enum.text.WD_BREAK.LINE)
                 elif p_idx < num_p - 1:
@@ -440,7 +442,7 @@ def generate_word_report(report_date, dept, location, expert, sicil_no, findings
             r.font.name = "Times New Roman"
             r.font.size = Pt(12)
 
-    # ================= 5. KAPANIS CÜMLESİ (DİNAMİK NUMPAGES) =================
+    # ================= 5. KAPANIS CÜMLESİ =================
     p_spacer = doc.add_paragraph()
     p_spacer.paragraph_format.space_after = Pt(6)
 
@@ -452,7 +454,7 @@ def generate_word_report(report_date, dept, location, expert, sicil_no, findings
     r_c1.font.name = "Times New Roman"
     r_c1.font.size = Pt(12)
     
-    # Gerçek/Fiziksel Sayfa Sayısını Otomatik Alan Kod (NUMPAGES)
+    # NUMPAGES (Otomatik sayfa sayısı hesaplayıcı)
     fld = OxmlElement('w:fldSimple')
     fld.set(qn('w:instr'), 'NUMPAGES')
     
@@ -462,13 +464,15 @@ def generate_word_report(report_date, dept, location, expert, sicil_no, findings
     r_fonts.set(qn('w:ascii'), 'Times New Roman')
     r_fonts.set(qn('w:hAnsi'), 'Times New Roman')
     r_sz = OxmlElement('w:sz')
-    r_sz.set(qn('w:val'), '24') # 12pt karşılığı
+    r_sz.set(qn('w:val'), '24') # 12 Punto
     r_pr.append(r_fonts)
     r_pr.append(r_sz)
     r_fld.append(r_pr)
     
     r_t = OxmlElement('w:t')
-    r_t.text = "1" # Alan kodu hesaplanana kadar geçici değer
+    # Dosya ilk açıldığında sırıtmasın diye "1" yerine "3" yazdık
+    # Yazdırıldığında veya PDF'e çevrildiğinde gerçek sayfa sayısını alır (Otomasyon bozulmaz)
+    r_t.text = "X" 
     r_fld.append(r_t)
     fld.append(r_fld)
     
