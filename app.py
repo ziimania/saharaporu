@@ -157,6 +157,14 @@ def add_cover_line(doc, text, size=24, bold=False, space_after=12):
     r.bold = bold
     return p
 
+def remove_table_spacing(table):
+    """Tablo içindeki tüm paragrafların alt/üst boşluklarını sıfırlar."""
+    for row in table.rows:
+        for cell in row.cells:
+            for p in cell.paragraphs:
+                p.paragraph_format.space_after = Pt(0)
+                p.paragraph_format.space_before = Pt(0)
+
 # ----------------- GEMINI API İLE METİN DÜZENLEME -----------------
 def call_gemini_ai(raw_note, api_key):
     system_prompt = (
@@ -190,7 +198,6 @@ def call_gemini_ai(raw_note, api_key):
 def generate_word_report(report_date, dept, location, expert, sicil_no, findings):
     doc = Document()
     
-    # Sayfa Boyutu: A4 Yatay
     section = doc.sections[0]
     section.orientation = WD_ORIENTATION.LANDSCAPE
     section.page_width = Inches(11.69)
@@ -210,12 +217,15 @@ def generate_word_report(report_date, dept, location, expert, sicil_no, findings
     p_cov_logo.paragraph_format.space_after = Pt(20)
     
     if logo_exists:
-        p_cov_logo.add_run().add_picture("logo.png", width=Inches(3.5)) # Logo büyütüldü
+        # Görselde belirtilen 8,52 cm genişlik ve 6,95 cm yükseklik inçe çevrilerek uygulandı
+        cm_to_inches = 2.54
+        w_in = 8.52 / cm_to_inches
+        h_in = 6.95 / cm_to_inches
+        p_cov_logo.add_run().add_picture("logo.png", width=Inches(w_in), height=Inches(h_in))
     else:
         r_l = p_cov_logo.add_run("[LOGO - logo.png]")
         r_l.bold = True
 
-    # Fontlar tam 24 Punto (Orijinal ile birebir)
     add_cover_line(doc, "T.C.", 24, bold=True, space_after=6)
     add_cover_line(doc, "MERSİN BÜYÜKŞEHİR BELEDİYESİ", 24, bold=True, space_after=6)
     add_cover_line(doc, f"{dept.upper()}", 24, bold=True, space_after=12)
@@ -223,14 +233,11 @@ def generate_word_report(report_date, dept, location, expert, sicil_no, findings
     add_cover_line(doc, "İSG Saha Gözetim Raporu", 24, bold=True, space_after=12)
     
     p_date = add_cover_line(doc, formatted_date, 24, bold=False, space_after=0)
-
-    # Boş sayfa hatasını engellemek için page_break'i son yazının doğrudan içine gömüyoruz
     p_date.runs[0].add_break(docx.enum.text.WD_BREAK.PAGE)
 
     # ================= 2. GİRİŞ CÜMLESİ =================
     p_intro = doc.add_paragraph()
     p_intro.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
-    # Tablo ile üst antete yapışmaması için boşluklar
     p_intro.paragraph_format.space_before = Pt(12) 
     p_intro.paragraph_format.space_after = Pt(12)
 
@@ -245,7 +252,7 @@ def generate_word_report(report_date, dept, location, expert, sicil_no, findings
         r.font.name = "Times New Roman"
         r.font.size = Pt(12)
 
-    # ================= 3. ÜST BİLGİ (HEADER) AYARI =================
+    # ================= 3. ÜST BİLGİ (HEADER) =================
     section.different_first_page_header_footer = True
     header = section.header
     header_table = header.add_table(rows=2, cols=3, width=Inches(10.1))
@@ -300,6 +307,9 @@ def generate_word_report(report_date, dept, location, expert, sicil_no, findings
     for r in [r_h_slbl, r_h_stxt]:
         r.font.name = "Times New Roman"
         r.font.size = Pt(11)
+
+    # Üst bilgi tablosunun hücrelerindeki iç boşlukları (space_after) 0'a çekiyoruz
+    remove_table_spacing(header_table)
 
     add_page_number_to_footer(section.footer)
 
@@ -390,10 +400,15 @@ def generate_word_report(report_date, dept, location, expert, sicil_no, findings
         r_l_lbl.font.name = "Times New Roman"
         r_l_lbl.font.size = Pt(12)
         
+        # Kesin çözüm: Madde imi noktası "• " manuel olarak eklendi
         legal_lines = [l.strip() for l in f["legal"].split("\n") if l.strip()]
         for line in legal_lines:
-            p_bullet = cell_desc.add_paragraph(style='List Paragraph') 
-            r_bullet = p_bullet.add_run(line.replace("•", "").strip())
+            line_clean = line.replace("•", "").replace("-", "").strip()
+            p_bullet = cell_desc.add_paragraph() 
+            p_bullet.paragraph_format.left_indent = Inches(0.25)
+            p_bullet.paragraph_format.space_before = Pt(0)
+            p_bullet.paragraph_format.space_after = Pt(2)
+            r_bullet = p_bullet.add_run(f"•  {line_clean}")
             r_bullet.font.name = "Times New Roman"
             r_bullet.font.size = Pt(12)
             
@@ -415,8 +430,7 @@ def generate_word_report(report_date, dept, location, expert, sicil_no, findings
             r.font.name = "Times New Roman"
             r.font.size = Pt(12)
 
-    # ================= 5. KAPANIS CÜMLESİ VE İMZA BLOĞU =================
-    # Son satırdan önceki boşluğu minimize ediyoruz
+    # ================= 5. KAPANIS CÜMLESİ =================
     p_spacer = doc.add_paragraph()
     p_spacer.paragraph_format.space_after = Pt(6)
 
@@ -430,20 +444,7 @@ def generate_word_report(report_date, dept, location, expert, sicil_no, findings
     r_close.font.name = "Times New Roman"
     r_close.font.size = Pt(12)
     
-    # İmza Bloğu (Gereksiz paragraflar silindi, line spacing düzeltildi)
-    p_sign = doc.add_paragraph()
-    p_sign.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-    p_sign.paragraph_format.space_before = Pt(24) # İmza aralığı
-    
-    r_s1 = p_sign.add_run("İş Sağlığı ve Güvenliği Uzmanı\n\n\n")
-    r_s1.bold = True
-    r_s2 = p_sign.add_run(f"{expert}\n")
-    r_s2.bold = True
-    r_s3 = p_sign.add_run("İmza")
-    
-    for r in [r_s1, r_s2, r_s3]:
-        r.font.name = "Times New Roman"
-        r.font.size = Pt(12)
+    # En alttaki Uzman/İmza kısmı tamamen kaldırıldı.
 
     file_stream = io.BytesIO()
     doc.save(file_stream)
@@ -467,6 +468,7 @@ with st.container():
         expert = st.text_input("İSG Uzmanı", value="Kemal ŞAHİN")
 
     with st.expander("Ek Bilgi (Sicil Numarası)"):
+        # Varsayılan sicil numarası güncellendi
         sicil_no = st.text_input("Sicil No", value="1 3900 01 01 1170275 033 12 53")
 
 st.divider()
