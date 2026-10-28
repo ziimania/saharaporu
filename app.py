@@ -99,6 +99,10 @@ with st.sidebar:
     st.info(f"Eklenen Madde Sayısı: **{len(st.session_state.findings)}**")
 
 # ----------------- WORD YARDIMCI FONKSİYONLARI -----------------
+def tr_upper(text):
+    """Küçük i'leri büyük İ yapan, Türkçe uyumlu uppercase fonksiyonu."""
+    return text.replace("i", "İ").replace("ı", "I").upper()
+
 def set_cell_background(cell, hex_color):
     tcPr = cell._element.get_or_add_tcPr()
     shd = parse_xml(f'<w:shd {nsdecls("w")} w:fill="{hex_color}"/>')
@@ -209,6 +213,7 @@ def generate_word_report(report_date, dept, location, expert, sicil_no, findings
     
     formatted_date = report_date.strftime("%d.%m.%Y")
     logo_exists = os.path.exists("logo.png")
+    dept_upper = tr_upper(dept) # VETERİNER İŞLERİ DAİRESİ BAŞKANLIĞI
 
     # ================= 1. KAPAK SAYFASI =================
     p_cov_logo = doc.add_paragraph()
@@ -217,7 +222,6 @@ def generate_word_report(report_date, dept, location, expert, sicil_no, findings
     p_cov_logo.paragraph_format.space_after = Pt(20)
     
     if logo_exists:
-        # Görselde belirtilen 8,52 cm genişlik ve 6,95 cm yükseklik inçe çevrilerek uygulandı
         cm_to_inches = 2.54
         w_in = 8.52 / cm_to_inches
         h_in = 6.95 / cm_to_inches
@@ -228,7 +232,7 @@ def generate_word_report(report_date, dept, location, expert, sicil_no, findings
 
     add_cover_line(doc, "T.C.", 24, bold=True, space_after=6)
     add_cover_line(doc, "MERSİN BÜYÜKŞEHİR BELEDİYESİ", 24, bold=True, space_after=6)
-    add_cover_line(doc, f"{dept.upper()}", 24, bold=True, space_after=12)
+    add_cover_line(doc, f"{dept_upper}", 24, bold=True, space_after=12)
     add_cover_line(doc, f"Sicil No: {sicil_no}", 24, bold=False, space_after=40)
     add_cover_line(doc, "İSG Saha Gözetim Raporu", 24, bold=True, space_after=12)
     
@@ -283,12 +287,12 @@ def generate_word_report(report_date, dept, location, expert, sicil_no, findings
     
     rh1 = p_h_mid.add_run("İŞ SAĞLIĞI VE GÜVENLİĞİ SAHA GÖZETİM RAPORU\n")
     rh2 = p_h_mid.add_run("MERSİN BÜYÜKŞEHİR BELEDİYESİ\n")
-    rh3 = p_h_mid.add_run(f"{dept.upper()}\n")
+    rh3 = p_h_mid.add_run(f"{dept_upper}\n")
     rh4 = p_h_mid.add_run(f"Sicil No : {sicil_no}")
     for r in [rh1, rh2, rh3, rh4]:
         r.bold = True
         r.font.name = "Times New Roman"
-        r.font.size = Pt(11)
+        r.font.size = Pt(12) # 11'den 12 Puntoya yükseltildi
 
     cell_h_date = header_table.cell(0, 2)
     p_hd = cell_h_date.paragraphs[0]
@@ -308,9 +312,7 @@ def generate_word_report(report_date, dept, location, expert, sicil_no, findings
         r.font.name = "Times New Roman"
         r.font.size = Pt(11)
 
-    # Üst bilgi tablosunun hücrelerindeki iç boşlukları (space_after) 0'a çekiyoruz
     remove_table_spacing(header_table)
-
     add_page_number_to_footer(section.footer)
 
     # ================= 4. BULGULAR TABLOSU =================
@@ -350,6 +352,7 @@ def generate_word_report(report_date, dept, location, expert, sicil_no, findings
         set_cell_margins(row_cells[0], top=120, bottom=120, left=100, right=100)
         set_cell_margins(row_cells[1], top=120, bottom=120, left=160, right=140)
 
+        # Fotoğraf Dizilimi (3 resim kuralı ve alt satır)
         cell_img = row_cells[0]
         cell_img.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
         p_img = cell_img.paragraphs[0]
@@ -357,13 +360,21 @@ def generate_word_report(report_date, dept, location, expert, sicil_no, findings
         
         if f["photos"]:
             num_p = len(f["photos"])
-            calc_w = Inches(3.9 / num_p) if num_p > 1 else Inches(3.2)
-            calc_w = min(calc_w, Inches(1.8)) if num_p > 1 else calc_w
-            
+            if num_p == 1:
+                calc_w = Inches(3.2)
+            elif num_p == 2:
+                calc_w = Inches(1.8)
+            else:
+                calc_w = Inches(1.25) # 3 resim ve fazlası için ideal genişlik
+                
             for p_idx, p_bytes in enumerate(f["photos"]):
                 img_stream = io.BytesIO(p_bytes)
                 p_img.add_run().add_picture(img_stream, width=calc_w)
-                if p_idx < num_p - 1:
+                
+                # Her 3 resimde bir alt satıra geç (ama son resim değilse)
+                if (p_idx + 1) % 3 == 0 and p_idx < num_p - 1:
+                    p_img.add_run().add_break(docx.enum.text.WD_BREAK.LINE)
+                elif p_idx < num_p - 1:
                     p_img.add_run("  ") 
         else:
             r_no = p_img.add_run("Görsel Eklenmedi")
@@ -400,7 +411,6 @@ def generate_word_report(report_date, dept, location, expert, sicil_no, findings
         r_l_lbl.font.name = "Times New Roman"
         r_l_lbl.font.size = Pt(12)
         
-        # Kesin çözüm: Madde imi noktası "• " manuel olarak eklendi
         legal_lines = [l.strip() for l in f["legal"].split("\n") if l.strip()]
         for line in legal_lines:
             line_clean = line.replace("•", "").replace("-", "").strip()
@@ -430,21 +440,43 @@ def generate_word_report(report_date, dept, location, expert, sicil_no, findings
             r.font.name = "Times New Roman"
             r.font.size = Pt(12)
 
-    # ================= 5. KAPANIS CÜMLESİ =================
+    # ================= 5. KAPANIS CÜMLESİ (DİNAMİK NUMPAGES) =================
     p_spacer = doc.add_paragraph()
     p_spacer.paragraph_format.space_after = Pt(6)
 
     p_close = doc.add_paragraph()
     p_close.alignment = WD_ALIGN_PARAGRAPH.LEFT
     count = len(findings)
-    r_close = p_close.add_run(
-        f"İş bu rapor {count} madde tehlike ve buna bağlı oluşabilecek riskler ve alınması gereken önlemler olmak üzere "
-        f"toplam {count} sayfadan ibarettir. ({formatted_date})"
-    )
-    r_close.font.name = "Times New Roman"
-    r_close.font.size = Pt(12)
     
-    # En alttaki Uzman/İmza kısmı tamamen kaldırıldı.
+    r_c1 = p_close.add_run(f"İş bu rapor {count} madde tehlike ve buna bağlı oluşabilecek riskler ve alınması gereken önlemler olmak üzere toplam ")
+    r_c1.font.name = "Times New Roman"
+    r_c1.font.size = Pt(12)
+    
+    # Gerçek/Fiziksel Sayfa Sayısını Otomatik Alan Kod (NUMPAGES)
+    fld = OxmlElement('w:fldSimple')
+    fld.set(qn('w:instr'), 'NUMPAGES')
+    
+    r_fld = OxmlElement('w:r')
+    r_pr = OxmlElement('w:rPr')
+    r_fonts = OxmlElement('w:rFonts')
+    r_fonts.set(qn('w:ascii'), 'Times New Roman')
+    r_fonts.set(qn('w:hAnsi'), 'Times New Roman')
+    r_sz = OxmlElement('w:sz')
+    r_sz.set(qn('w:val'), '24') # 12pt karşılığı
+    r_pr.append(r_fonts)
+    r_pr.append(r_sz)
+    r_fld.append(r_pr)
+    
+    r_t = OxmlElement('w:t')
+    r_t.text = "1" # Alan kodu hesaplanana kadar geçici değer
+    r_fld.append(r_t)
+    fld.append(r_fld)
+    
+    p_close._p.append(fld)
+    
+    r_c2 = p_close.add_run(f" sayfadan ibarettir. ({formatted_date})")
+    r_c2.font.name = "Times New Roman"
+    r_c2.font.size = Pt(12)
 
     file_stream = io.BytesIO()
     doc.save(file_stream)
@@ -468,7 +500,6 @@ with st.container():
         expert = st.text_input("İSG Uzmanı", value="Kemal ŞAHİN")
 
     with st.expander("Ek Bilgi (Sicil Numarası)"):
-        # Varsayılan sicil numarası güncellendi
         sicil_no = st.text_input("Sicil No", value="1 3900 01 01 1170275 033 12 53")
 
 st.divider()
