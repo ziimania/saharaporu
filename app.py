@@ -13,6 +13,7 @@ from docx.oxml import parse_xml, OxmlElement
 from docx.oxml.ns import nsdecls, qn
 from streamlit_cookies_controller import CookieController
 import docx
+import json
 
 # ----------------- SAYFA YAPILANDIRMASI -----------------
 st.set_page_config(
@@ -55,7 +56,7 @@ if "findings" not in st.session_state:
 if "api_key" not in st.session_state:
     st.session_state.api_key = ""
 
-# Form temizleme sayacı (Tüm widget'ları aynı anda yenilemek için)
+# Form temizleme ve yapay zeka senkronizasyonu için ana sayaç
 if "form_reset_counter" not in st.session_state:
     st.session_state.form_reset_counter = 0
 
@@ -195,7 +196,6 @@ def call_gemini_ai(raw_note, api_key):
     if response.status_code != 200:
         raise Exception(f"Google API Hatası: {response.text}")
     
-    import json
     return json.loads(response.json()["candidates"][0]["content"]["parts"][0]["text"])
 
 # ----------------- WORD BELGESİ OLUŞTURMA -----------------
@@ -373,7 +373,6 @@ def generate_word_report(report_date, dept, location, expert, sicil_no, findings
                 img_stream = io.BytesIO(p_bytes)
                 p_img.add_run().add_picture(img_stream, width=calc_w)
                 
-                # Sadece her 2 resimde bir alt satıra geç (son resim değilse)
                 if (p_idx + 1) % 2 == 0 and p_idx < num_p - 1:
                     p_img.add_run().add_break(docx.enum.text.WD_BREAK.LINE)
                 elif p_idx < num_p - 1:
@@ -487,6 +486,9 @@ def generate_word_report(report_date, dept, location, expert, sicil_no, findings
 # ----------------- STREAMLIT ÖN YÜZ -----------------
 st.title("🛡️ İSG Saha Gözetim Raporu")
 
+# Ana form temizleme sayacı ID'si
+f_id = st.session_state.form_reset_counter
+
 with st.container():
     st.subheader("📋 Rapor Üst Bilgileri")
     c1, c2 = st.columns(2)
@@ -507,48 +509,44 @@ st.divider()
 
 st.subheader("🔍 Tespit / Uygunsuzluk Ekle")
 
-# Session State değişkenleri (Form Temizliği İçin)
-# Her form gönderildiğinde sayaç (form_reset_counter) 1 artacak, böylece widget'ların KEY'i değişip sıfırlanacak.
-f_id = st.session_state.form_reset_counter
-
 col_note, col_btn = st.columns([3.5, 1.5])
 with col_note:
-    # "raw_note" değerini st.session_state üzerinden de takip edebiliriz, ama 
-    # API'ye yollamak için anlık değerini alıyoruz.
-    raw_note = st.text_input("Saha Notunuz (Hızlı Giriş)", placeholder="Örn: Priz kapağı kırık...", key=f"raw_note_{f_id}")
+    # Kullanıcının girdiği saha notunu dinamik ID ile bağlıyoruz
+    st.text_input("Saha Notunuz (Hızlı Giriş)", placeholder="Örn: Priz kapağı kırık...", key=f"raw_note_{f_id}")
 with col_btn:
     st.write("")
     st.write("")
     ai_btn = st.button("✨ Yapay Zeka ile Düzenle", use_container_width=True)
 
-# AI doldurduğunda değerleri hafızada geçici tutmak için
-if "temp_tespit" not in st.session_state: st.session_state.temp_tespit = ""
-if "temp_oneri" not in st.session_state: st.session_state.temp_oneri = ""
-if "temp_yasal" not in st.session_state: st.session_state.temp_yasal = ""
-
 if ai_btn:
     if not active_api_key:
         st.error("Lütfen sol taraftan Gemini API anahtarınızı giriniz.")
-    elif not raw_note.strip():
+    elif not st.session_state[f"raw_note_{f_id}"].strip():
         st.warning("Lütfen kısa bir saha gözlem notu girin.")
     else:
         with st.spinner("İSG standartlarına göre düzenleniyor..."):
             try:
-                res = call_gemini_ai(raw_note, active_api_key)
-                st.session_state.temp_tespit = res.get("tespit", "")
-                st.session_state.temp_oneri = res.get("oneri", "")
-                st.session_state.temp_yasal = res.get("yasal", "")
+                # Yapay Zeka sonucunu alıp doğrudan widget'ın ana hafızasına (key) yazıyoruz
+                note = st.session_state[f"raw_note_{f_id}"]
+                res = call_gemini_ai(note, active_api_key)
+                
+                st.session_state[f"tespit_{f_id}"] = res.get("tespit", "")
+                st.session_state[f"oneri_{f_id}"] = res.get("oneri", "")
+                st.session_state[f"yasal_{f_id}"] = res.get("yasal", "")
+                
                 st.success("Yapay zeka düzenledi!")
             except Exception as e:
                 st.error(f"Hata: {str(e)}")
 
-finding_input = st.text_area("Tespit / Uygunsuzluk", value=st.session_state.temp_tespit, height=85, key=f"tespit_{f_id}")
-suggestion_input = st.text_area("Öneri / Önlem", value=st.session_state.temp_oneri, height=85, key=f"oneri_{f_id}")
+# VALUE parametresi tamamen kaldırıldı; Widget'lar direkt olarak state key ile kontrol ediliyor.
+finding_input = st.text_area("Tespit / Uygunsuzluk", height=85, key=f"tespit_{f_id}")
+suggestion_input = st.text_area("Öneri / Önlem", height=85, key=f"oneri_{f_id}")
 
 col_l, col_r, col_t = st.columns([2, 1.2, 1])
 with col_l:
-    legal_input = st.text_area("Yasal Dayanak (Satır Satır)", value=st.session_state.temp_yasal, height=80, key=f"yasal_{f_id}")
+    legal_input = st.text_area("Yasal Dayanak (Satır Satır)", height=80, key=f"yasal_{f_id}")
 with col_r:
+    # Sorumlu ve termin için value kalmalı çünkü sayfa her yenilendiğinde bu alanın varsayılanı dolu gelmeli
     responsible_input = st.text_input("Sorumlular", value=dept, key=f"sorumlu_{f_id}")
 with col_t:
     termin_input = st.text_input("Termin", value="İvedilikle", key=f"termin_{f_id}")
@@ -570,26 +568,22 @@ if uploaded_photos:
     st.markdown('</div>', unsafe_allow_html=True)
 
 if st.button("➕ Bu Maddeyi Listeye Kaydet", type="primary", use_container_width=True):
-    if not finding_input.strip():
+    if not st.session_state.get(f"tespit_{f_id}", "").strip():
         st.warning("Tespit alanı boş bırakılamaz.")
     else:
         photo_bytes_list = [p.getvalue() for p in uploaded_photos] if uploaded_photos else []
         
         st.session_state.findings.append({
-            "finding": finding_input.strip(),
-            "suggestion": suggestion_input.strip(),
-            "legal": legal_input.strip(),
-            "responsible": responsible_input.strip(),
-            "termin": termin_input.strip(),
+            "finding": st.session_state[f"tespit_{f_id}"].strip(),
+            "suggestion": st.session_state[f"oneri_{f_id}"].strip(),
+            "legal": st.session_state[f"yasal_{f_id}"].strip(),
+            "responsible": st.session_state[f"sorumlu_{f_id}"].strip(),
+            "termin": st.session_state[f"termin_{f_id}"].strip(),
             "photos": photo_bytes_list
         })
         
-        # Temp değerleri temizle
-        st.session_state.temp_tespit = ""
-        st.session_state.temp_oneri = ""
-        st.session_state.temp_yasal = ""
-        
-        # SAYAÇ ARTIRARAK TÜM WIDGET'LARI SIFIRLIYORUZ (Hatasız Kesin Çözüm)
+        # Madde listeye eklendikten sonra sayacı 1 artırarak 
+        # BÜTÜN FORM WIDGET'LARINI ZORLA SIFIRLIYORUZ (Bugün karşılaştığımız hatanın kesin çözümü)
         st.session_state.form_reset_counter += 1
         
         st.success("Madde başarıyla listeye eklendi!")
