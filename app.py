@@ -314,7 +314,7 @@ def generate_word_report(report_date, dept, location, expert, sicil_no, findings
     
     # Yeni sayfaya taşan tablonun üst bilgiye yapışmasını engellemek için antet altına nefes boşluğu ekliyoruz
     p_header_spacer = header.add_paragraph()
-    p_header_spacer.paragraph_format.space_before = Pt(12)
+    p_header_spacer.paragraph_format.space_before = Pt(5)
     p_header_spacer.paragraph_format.space_after = Pt(0)
 
     add_page_number_to_footer(section.footer)
