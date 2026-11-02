@@ -56,7 +56,6 @@ if "findings" not in st.session_state:
 if "api_key" not in st.session_state:
     st.session_state.api_key = ""
 
-# Form temizleme ve yapay zeka senkronizasyonu için ana sayaç
 if "form_reset_counter" not in st.session_state:
     st.session_state.form_reset_counter = 0
 
@@ -149,9 +148,10 @@ def add_page_number_to_footer(footer):
     run_sep.font.name = "Times New Roman"
     run_sep.font.size = Pt(10)
     
-    fld_numpages = OxmlElement('w:fldSimple')
-    fld_numpages.set(qn('w:instr'), 'NUMPAGES')
-    p._p.append(fld_numpages)
+    # NUMPAGES yerine SECTIONPAGES (Sadece rapor sayfalarını say)
+    fld_sectpages = OxmlElement('w:fldSimple')
+    fld_sectpages.set(qn('w:instr'), 'SECTIONPAGES')
+    p._p.append(fld_sectpages)
 
 def add_cover_line(doc, text, size=24, bold=False, space_after=12):
     p = doc.add_paragraph()
@@ -202,20 +202,20 @@ def call_gemini_ai(raw_note, api_key):
 def generate_word_report(report_date, dept, location, expert, sicil_no, findings):
     doc = Document()
     
-    section = doc.sections[0]
-    section.orientation = WD_ORIENTATION.LANDSCAPE
-    section.page_width = Inches(11.69)
-    section.page_height = Inches(8.27)
-    section.top_margin = Inches(0.6)
-    section.bottom_margin = Inches(0.5)
-    section.left_margin = Inches(0.8)
-    section.right_margin = Inches(0.8)
+    # ---------------- 1. BÖLÜM: KAPAK SAYFASI ----------------
+    section_1 = doc.sections[0]
+    section_1.orientation = WD_ORIENTATION.LANDSCAPE
+    section_1.page_width = Inches(11.69)
+    section_1.page_height = Inches(8.27)
+    section_1.top_margin = Inches(0.6)
+    section_1.bottom_margin = Inches(0.5)
+    section_1.left_margin = Inches(0.8)
+    section_1.right_margin = Inches(0.8)
     
     formatted_date = report_date.strftime("%d.%m.%Y")
     logo_exists = os.path.exists("logo.png")
     dept_upper = tr_upper(dept) 
 
-    # ================= 1. KAPAK SAYFASI =================
     p_cov_logo = doc.add_paragraph()
     p_cov_logo.alignment = WD_ALIGN_PARAGRAPH.CENTER
     p_cov_logo.paragraph_format.space_before = Pt(30)
@@ -236,10 +236,26 @@ def generate_word_report(report_date, dept, location, expert, sicil_no, findings
     add_cover_line(doc, f"Sicil No: {sicil_no}", 24, bold=False, space_after=40)
     add_cover_line(doc, "İSG Saha Gözetim Raporu", 24, bold=True, space_after=12)
     
-    p_date = add_cover_line(doc, formatted_date, 24, bold=False, space_after=0)
-    p_date.runs[0].add_break(docx.enum.text.WD_BREAK.PAGE)
+    add_cover_line(doc, formatted_date, 24, bold=False, space_after=0)
 
-    # ================= 2. GİRİŞ CÜMLESİ =================
+    # ---------------- 2. BÖLÜM: RAPOR SAYFALARI ----------------
+    # Yeni bölüme geçiş (Kapak sayfasının numaradan sayılmaması için)
+    section_2 = doc.add_section(WD_SECTION.NEW_PAGE)
+    section_2.orientation = WD_ORIENTATION.LANDSCAPE
+    section_2.page_width = Inches(11.69)
+    section_2.page_height = Inches(8.27)
+    section_2.top_margin = Inches(0.6)
+    section_2.bottom_margin = Inches(0.5)
+    section_2.left_margin = Inches(0.8)
+    section_2.right_margin = Inches(0.8)
+    
+    # 2. Bölümün sayfa numarasını 1'den başlat
+    sectPr = section_2._sectPr
+    pgNumType = OxmlElement('w:pgNumType')
+    pgNumType.set(qn('w:start'), '1')
+    sectPr.append(pgNumType)
+
+    # GİRİŞ CÜMLESİ
     p_intro = doc.add_paragraph()
     p_intro.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
     p_intro.paragraph_format.space_before = Pt(12) 
@@ -256,9 +272,8 @@ def generate_word_report(report_date, dept, location, expert, sicil_no, findings
         r.font.name = "Times New Roman"
         r.font.size = Pt(12)
 
-    # ================= 3. ÜST BİLGİ (HEADER) =================
-    section.different_first_page_header_footer = True
-    header = section.header
+    # ÜST BİLGİ (HEADER) - SADECE 2. BÖLÜMDE GÖSTERİLİR
+    header = section_2.header
     header_table = header.add_table(rows=2, cols=3, width=Inches(10.1))
     header_table.alignment = WD_TABLE_ALIGNMENT.CENTER
     header_table.autofit = False
@@ -318,9 +333,9 @@ def generate_word_report(report_date, dept, location, expert, sicil_no, findings
     p_header_spacer.paragraph_format.space_before = Pt(3)
     p_header_spacer.paragraph_format.space_after = Pt(0)
 
-    add_page_number_to_footer(section.footer)
+    add_page_number_to_footer(section_2.footer)
 
-    # ================= 4. BULGULAR TABLOSU =================
+    # BULGULAR TABLOSU
     findings_table = doc.add_table(rows=1, cols=2)
     findings_table.alignment = WD_TABLE_ALIGNMENT.CENTER
     findings_table.autofit = False
@@ -385,26 +400,37 @@ def generate_word_report(report_date, dept, location, expert, sicil_no, findings
         cell_desc = row_cells[1]
         cell_desc.vertical_alignment = WD_ALIGN_VERTICAL.TOP
         
+        # TESPİT (Alt Çizgi Boşluk Hatası Düzeltildi)
         p_f = cell_desc.paragraphs[0]
         p_f.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
-        r_f_lbl = p_f.add_run("Tespit / Uygunsuzluk : ")
+        r_f_lbl = p_f.add_run("Tespit / Uygunsuzluk:")
         r_f_lbl.bold = True
         r_f_lbl.underline = True
+        
+        p_f.add_run(" ").font.name = "Times New Roman" # Çizgisiz boşluk
+        
         r_f_txt = p_f.add_run(f["finding"])
-        for r in [r_f_lbl, r_f_txt]:
-            r.font.name = "Times New Roman"
-            r.font.size = Pt(12)
+        r_f_lbl.font.name = "Times New Roman"
+        r_f_lbl.font.size = Pt(12)
+        r_f_txt.font.name = "Times New Roman"
+        r_f_txt.font.size = Pt(12)
             
+        # ÖNERİ (Alt Çizgi Boşluk Hatası Düzeltildi)
         p_s = cell_desc.add_paragraph()
         p_s.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
-        r_s_lbl = p_s.add_run("Öneri: ")
+        r_s_lbl = p_s.add_run("Öneri:")
         r_s_lbl.bold = True
         r_s_lbl.underline = True
+        
+        p_s.add_run(" ").font.name = "Times New Roman" # Çizgisiz boşluk
+        
         r_s_txt = p_s.add_run(f["suggestion"])
-        for r in [r_s_lbl, r_s_txt]:
-            r.font.name = "Times New Roman"
-            r.font.size = Pt(12)
+        r_s_lbl.font.name = "Times New Roman"
+        r_s_lbl.font.size = Pt(12)
+        r_s_txt.font.name = "Times New Roman"
+        r_s_txt.font.size = Pt(12)
             
+        # YASAL DAYANAK
         p_l_head = cell_desc.add_paragraph()
         r_l_lbl = p_l_head.add_run("Yasal Dayanak:")
         r_l_lbl.bold = True
@@ -423,25 +449,35 @@ def generate_word_report(report_date, dept, location, expert, sicil_no, findings
             r_bullet.font.name = "Times New Roman"
             r_bullet.font.size = Pt(12)
             
+        # SORUMLULAR (Alt Çizgi Boşluk Hatası Düzeltildi)
         p_r = cell_desc.add_paragraph()
-        r_r_lbl = p_r.add_run("Sorumlular: ")
+        r_r_lbl = p_r.add_run("Sorumlular:")
         r_r_lbl.bold = True
         r_r_lbl.underline = True
+        
+        p_r.add_run(" ").font.name = "Times New Roman" # Çizgisiz boşluk
+        
         r_r_txt = p_r.add_run(f["responsible"])
-        for r in [r_r_lbl, r_r_txt]:
-            r.font.name = "Times New Roman"
-            r.font.size = Pt(12)
+        r_r_lbl.font.name = "Times New Roman"
+        r_r_lbl.font.size = Pt(12)
+        r_r_txt.font.name = "Times New Roman"
+        r_r_txt.font.size = Pt(12)
             
+        # TERMİN (Alt Çizgi Boşluk Hatası Düzeltildi)
         p_t = cell_desc.add_paragraph()
-        r_t_lbl = p_t.add_run("Termin: ")
+        r_t_lbl = p_t.add_run("Termin:")
         r_t_lbl.bold = True
         r_t_lbl.underline = True
+        
+        p_t.add_run(" ").font.name = "Times New Roman" # Çizgisiz boşluk
+        
         r_t_txt = p_t.add_run(f["termin"])
-        for r in [r_t_lbl, r_t_txt]:
-            r.font.name = "Times New Roman"
-            r.font.size = Pt(12)
+        r_t_lbl.font.name = "Times New Roman"
+        r_t_lbl.font.size = Pt(12)
+        r_t_txt.font.name = "Times New Roman"
+        r_t_txt.font.size = Pt(12)
 
-    # ================= 5. KAPANIS CÜMLESİ =================
+    # ================= KAPANIS CÜMLESİ =================
     p_spacer = doc.add_paragraph()
     p_spacer.paragraph_format.space_after = Pt(6)
 
@@ -453,8 +489,9 @@ def generate_word_report(report_date, dept, location, expert, sicil_no, findings
     r_c1.font.name = "Times New Roman"
     r_c1.font.size = Pt(12)
     
+    # NUMPAGES (Tüm belge) yerine SECTIONPAGES (Sadece Bölüm 2)
     fld = OxmlElement('w:fldSimple')
-    fld.set(qn('w:instr'), 'NUMPAGES')
+    fld.set(qn('w:instr'), 'SECTIONPAGES')
     
     r_fld = OxmlElement('w:r')
     r_pr = OxmlElement('w:rPr')
@@ -468,7 +505,7 @@ def generate_word_report(report_date, dept, location, expert, sicil_no, findings
     r_fld.append(r_pr)
     
     r_t = OxmlElement('w:t')
-    r_t.text = "3" 
+    r_t.text = "1" 
     r_fld.append(r_t)
     fld.append(r_fld)
     
@@ -486,7 +523,6 @@ def generate_word_report(report_date, dept, location, expert, sicil_no, findings
 # ----------------- STREAMLIT ÖN YÜZ -----------------
 st.title("🛡️ İSG Saha Gözetim Raporu")
 
-# Ana form temizleme sayacı ID'si
 f_id = st.session_state.form_reset_counter
 
 with st.container():
@@ -511,12 +547,15 @@ st.subheader("🔍 Tespit / Uygunsuzluk Ekle")
 
 col_note, col_btn = st.columns([3.5, 1.5])
 with col_note:
-    # Kullanıcının girdiği saha notunu dinamik ID ile bağlıyoruz
-    st.text_input("Saha Notunuz (Hızlı Giriş)", placeholder="Örn: Priz kapağı kırık...", key=f"raw_note_{f_id}")
+    raw_note = st.text_input("Saha Notunuz (Hızlı Giriş)", placeholder="Örn: Priz kapağı kırık...", key=f"raw_note_{f_id}")
 with col_btn:
     st.write("")
     st.write("")
     ai_btn = st.button("✨ Yapay Zeka ile Düzenle", use_container_width=True)
+
+if "temp_tespit" not in st.session_state: st.session_state.temp_tespit = ""
+if "temp_oneri" not in st.session_state: st.session_state.temp_oneri = ""
+if "temp_yasal" not in st.session_state: st.session_state.temp_yasal = ""
 
 if ai_btn:
     if not active_api_key:
@@ -526,27 +565,25 @@ if ai_btn:
     else:
         with st.spinner("İSG standartlarına göre düzenleniyor..."):
             try:
-                # Yapay Zeka sonucunu alıp doğrudan widget'ın ana hafızasına (key) yazıyoruz
                 note = st.session_state[f"raw_note_{f_id}"]
                 res = call_gemini_ai(note, active_api_key)
                 
-                st.session_state[f"tespit_{f_id}"] = res.get("tespit", "")
-                st.session_state[f"oneri_{f_id}"] = res.get("oneri", "")
-                st.session_state[f"yasal_{f_id}"] = res.get("yasal", "")
+                st.session_state.temp_tespit = res.get("tespit", "")
+                st.session_state.temp_oneri = res.get("oneri", "")
+                st.session_state.temp_yasal = res.get("yasal", "")
                 
                 st.success("Yapay zeka düzenledi!")
             except Exception as e:
                 st.error(f"Hata: {str(e)}")
 
-# VALUE parametresi tamamen kaldırıldı; Widget'lar direkt olarak state key ile kontrol ediliyor.
-finding_input = st.text_area("Tespit / Uygunsuzluk", height=85, key=f"tespit_{f_id}")
-suggestion_input = st.text_area("Öneri / Önlem", height=85, key=f"oneri_{f_id}")
+# Kullanıcı AI kullanmazsa kendi yazdığı veri kalır, AI kullanırsa AI verisi ekrana düşer
+finding_input = st.text_area("Tespit / Uygunsuzluk", value=st.session_state.temp_tespit, height=85, key=f"tespit_{f_id}")
+suggestion_input = st.text_area("Öneri / Önlem", value=st.session_state.temp_oneri, height=85, key=f"oneri_{f_id}")
 
 col_l, col_r, col_t = st.columns([2, 1.2, 1])
 with col_l:
-    legal_input = st.text_area("Yasal Dayanak (Satır Satır)", height=80, key=f"yasal_{f_id}")
+    legal_input = st.text_area("Yasal Dayanak (Satır Satır)", value=st.session_state.temp_yasal, height=80, key=f"yasal_{f_id}")
 with col_r:
-    # Sorumlu ve termin için value kalmalı çünkü sayfa her yenilendiğinde bu alanın varsayılanı dolu gelmeli
     responsible_input = st.text_input("Sorumlular", value=dept, key=f"sorumlu_{f_id}")
 with col_t:
     termin_input = st.text_input("Termin", value="İvedilikle", key=f"termin_{f_id}")
@@ -568,24 +605,34 @@ if uploaded_photos:
     st.markdown('</div>', unsafe_allow_html=True)
 
 if st.button("➕ Bu Maddeyi Listeye Kaydet", type="primary", use_container_width=True):
-    if not st.session_state.get(f"tespit_{f_id}", "").strip():
+    # Form'daki text_area kutularından gelen anlık değerli kaydet
+    anlik_tespit = st.session_state[f"tespit_{f_id}"]
+    anlik_oneri = st.session_state[f"oneri_{f_id}"]
+    anlik_yasal = st.session_state[f"yasal_{f_id}"]
+    anlik_sorumlu = st.session_state[f"sorumlu_{f_id}"]
+    anlik_termin = st.session_state[f"termin_{f_id}"]
+
+    if not anlik_tespit.strip():
         st.warning("Tespit alanı boş bırakılamaz.")
     else:
         photo_bytes_list = [p.getvalue() for p in uploaded_photos] if uploaded_photos else []
         
         st.session_state.findings.append({
-            "finding": st.session_state[f"tespit_{f_id}"].strip(),
-            "suggestion": st.session_state[f"oneri_{f_id}"].strip(),
-            "legal": st.session_state[f"yasal_{f_id}"].strip(),
-            "responsible": st.session_state[f"sorumlu_{f_id}"].strip(),
-            "termin": st.session_state[f"termin_{f_id}"].strip(),
+            "finding": anlik_tespit.strip(),
+            "suggestion": anlik_oneri.strip(),
+            "legal": anlik_yasal.strip(),
+            "responsible": anlik_sorumlu.strip(),
+            "termin": anlik_termin.strip(),
             "photos": photo_bytes_list
         })
         
-        # Madde listeye eklendikten sonra sayacı 1 artırarak 
-        # BÜTÜN FORM WIDGET'LARINI ZORLA SIFIRLIYORUZ (Bugün karşılaştığımız hatanın kesin çözümü)
-        st.session_state.form_reset_counter += 1
+        # Temp değerleri sil (AI kalıntılarını temizle)
+        st.session_state.temp_tespit = ""
+        st.session_state.temp_oneri = ""
+        st.session_state.temp_yasal = ""
         
+        # Ana form sayacını tetikle, böylece tüm UI yeni widget_id ile sıfırlanır
+        st.session_state.form_reset_counter += 1
         st.success("Madde başarıyla listeye eklendi!")
         st.rerun()
 
